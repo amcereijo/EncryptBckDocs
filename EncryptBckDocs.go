@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -89,6 +90,32 @@ func saveToken(file string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
+func findHolderFolder(folderName string, driveSrv *drive.Service) (file *drive.File, err error) {
+	r, err := driveSrv.Files.List().Q("mimeType='application/vnd.google-apps.folder' and explicitlyTrashed=false").Fields("nextPageToken, files(id, name, mimeType)").Do()
+	if err != nil {
+		return nil, err
+	} else {
+		var folder *drive.File
+		var err error
+		if len(r.Files) > 0 {
+			for _, actualFile := range r.Files {
+				// fmt.Printf("-- NAME: %s - ID: (%s) - TYPE:%s\n", actualFile.Name, actualFile.Id, actualFile.MimeType)
+				if actualFile.Name == folderName {
+					folder = actualFile
+					//	break
+				}
+			}
+			if folder == nil {
+				errorString := fmt.Sprintf("No folder with name \"%s\"", folderName)
+				err = errors.New(errorString)
+			}
+		} else {
+			err = errors.New("No folders")
+		}
+		return folder, err
+	}
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -105,25 +132,25 @@ func main() {
 	}
 	client := getClient(ctx, config)
 
-	srv, err := drive.New(client)
+	driveSrv, err := drive.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
 
-	r, err := srv.Files.List().PageSize(10).
-		Fields("nextPageToken, files(id, name)").Do()
-	if err != nil {
-		log.Fatalf("Unable to retrieve files.", err)
+	folderName := "EncryptBckDoc"
+	var inputFolderName string
+	fmt.Print("Name for the folder to save files (default: EncryptBckDoc): ")
+	fmt.Scanln(&inputFolderName)
+	if inputFolderName != "" {
+		folderName = inputFolderName
 	}
+	fmt.Printf("Looking for folder \"%s\"...\n", folderName)
 
-	fmt.Println("Files:")
-	if len(r.Files) > 0 {
-		for _, i := range r.Files {
-			fmt.Printf("%s (%s)\n", i.Name, i.Id)
-		}
-	} else {
-		fmt.Print("No files found.")
+	folderFile, err := findHolderFolder(folderName, driveSrv)
+	if err != nil {
+		log.Fatalf("Error finding %s : %v", folderName, err)
 	}
+	fmt.Printf("Found folder %s - ID: (%s) - TYPE:%s\n", folderFile.Name, folderFile.Id, folderFile.MimeType)
 
 	fileToUpload := "./Example.txt"
 	goFile, err := os.Open(fileToUpload)
@@ -131,17 +158,17 @@ func main() {
 		log.Fatalf("error opening file: %v", err)
 	}
 
-	parents := []string{"/EncryptBckDoc"}
+	parents := []string{folderFile.Id}
 	fileMeta := &drive.File{
 		Parents: parents,
 		Name:    filepath.Base(fileToUpload),
 	}
 
-	_, err = srv.Files.Create(fileMeta).Media(goFile).Do()
+	_, err = driveSrv.Files.Create(fileMeta).Media(goFile).Do()
 	if err != nil {
 		panic(err)
 	} else {
-		fmt.Println("Uploaded")
+		fmt.Printf("Uploaded file \"%s\" to \"%s\" !!\n", fileToUpload, folderFile.Name)
 	}
 
 }

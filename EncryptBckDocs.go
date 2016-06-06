@@ -114,6 +114,48 @@ func findHolderFolder(folderName string, driveSrv *drive.Service) (file *drive.F
 	return folder, err
 }
 
+func findUploadFileInDrive(fileName string, parentID string, driveSrv *drive.Service) (fileToUpload *drive.File, err error) {
+	r, err := driveSrv.Files.List().Q("'" + parentID + "' in parents and explicitlyTrashed=false and name='" + fileName + "'").Fields("files(id, name)").Do()
+	if err != nil {
+		return nil, err
+	}
+	if len(r.Files) > 0 {
+		fileToUpload = r.Files[0]
+	}
+	return fileToUpload, err
+}
+
+func updateFileInDrive(driveFileToUpload *drive.File, goFile *os.File, driveSrv *drive.Service) (err error) {
+	fmt.Printf("Upate existing file %s\n!!", driveFileToUpload.Name)
+	driveFileToUpdate := &drive.File{
+		Name: filepath.Base(driveFileToUpload.Name),
+	}
+
+	_, err = driveSrv.Files.Update(driveFileToUpload.Id, driveFileToUpdate).Media(goFile).Do()
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Updated file \"%s\"!!\n", driveFileToUpload.Name)
+	}
+
+	return err
+}
+
+func uploadNewFileToDrive(folderFile *drive.File, fileToUploadName string, fileToUploadURL string, goFile *os.File, driveSrv *drive.Service) (err error) {
+	parents := []string{folderFile.Id}
+	driveFileToUpload := &drive.File{
+		Parents: parents,
+		Name:    filepath.Base(fileToUploadName),
+	}
+	_, err = driveSrv.Files.Create(driveFileToUpload).Media(goFile).Do()
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Uploaded file \"%s\" to \"%s\" !!\n", fileToUploadName, folderFile.Name)
+	}
+	return err
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -164,23 +206,23 @@ func main() {
 
 	fmt.Printf("Found folder %s - ID: (%s) - TYPE:%s\n", folderFile.Name, folderFile.Id, folderFile.MimeType)
 
-	fileToUpload := "./Example.txt"
-	goFile, err := os.Open(fileToUpload)
+	fileToUploadName := "Example.txt"
+	fileToUploadURL := "./Example.txt"
+	goFile, err := os.Open(fileToUploadURL)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
 
-	parents := []string{folderFile.Id}
-	fileMeta := &drive.File{
-		Parents: parents,
-		Name:    filepath.Base(fileToUpload),
+	var driveFileToUpload *drive.File
+	driveFileToUpload, err = findUploadFileInDrive(fileToUploadName, folderFile.Id, driveSrv)
+	if err != nil {
+		log.Fatalf("Error checking if file \"%s\" already exists", fileToUploadName)
 	}
 
-	_, err = driveSrv.Files.Create(fileMeta).Media(goFile).Do()
-	if err != nil {
-		panic(err)
+	if driveFileToUpload != nil {
+		updateFileInDrive(driveFileToUpload, goFile, driveSrv)
 	} else {
-		fmt.Printf("Uploaded file \"%s\" to \"%s\" !!\n", fileToUpload, folderFile.Name)
+		uploadNewFileToDrive(folderFile, fileToUploadName, fileToUploadURL, goFile, driveSrv)
 	}
 
 }

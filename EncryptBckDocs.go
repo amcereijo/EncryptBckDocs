@@ -94,26 +94,24 @@ func findHolderFolder(folderName string, driveSrv *drive.Service) (file *drive.F
 	r, err := driveSrv.Files.List().Q("mimeType='application/vnd.google-apps.folder' and explicitlyTrashed=false").Fields("nextPageToken, files(id, name, mimeType)").Do()
 	if err != nil {
 		return nil, err
-	} else {
-		var folder *drive.File
-		var err error
-		if len(r.Files) > 0 {
-			for _, actualFile := range r.Files {
-				// fmt.Printf("-- NAME: %s - ID: (%s) - TYPE:%s\n", actualFile.Name, actualFile.Id, actualFile.MimeType)
-				if actualFile.Name == folderName {
-					folder = actualFile
-					//	break
-				}
-			}
-			if folder == nil {
-				errorString := fmt.Sprintf("No folder with name \"%s\"", folderName)
-				err = errors.New(errorString)
-			}
-		} else {
-			err = errors.New("No folders")
-		}
-		return folder, err
 	}
+	var folder *drive.File
+	if len(r.Files) > 0 {
+		for _, actualFile := range r.Files {
+			// fmt.Printf("-- NAME: %s - ID: (%s) - TYPE:%s\n", actualFile.Name, actualFile.Id, actualFile.MimeType)
+			if actualFile.Name == folderName {
+				folder = actualFile
+				//	break
+			}
+		}
+		if folder == nil {
+			errorString := fmt.Sprintf("No folder with name \"%s\"", folderName)
+			err = errors.New(errorString)
+		}
+	} else {
+		err = errors.New("No folders")
+	}
+	return folder, err
 }
 
 func main() {
@@ -148,8 +146,22 @@ func main() {
 
 	folderFile, err := findHolderFolder(folderName, driveSrv)
 	if err != nil {
-		log.Fatalf("Error finding %s : %v", folderName, err)
+		log.Printf("Error finding %s : %v\n", folderName, err)
+		// create folder
+		fileMeta := &drive.File{
+			Name:     folderName,
+			MimeType: "application/vnd.google-apps.folder",
+		}
+
+		folderFile, err = driveSrv.Files.Create(fileMeta).Do()
+		if err != nil {
+			panic(err)
+		} else {
+			fmt.Printf("Created folder \"%s\" for files!!\n", folderName)
+		}
+
 	}
+
 	fmt.Printf("Found folder %s - ID: (%s) - TYPE:%s\n", folderFile.Name, folderFile.Id, folderFile.MimeType)
 
 	fileToUpload := "./Example.txt"

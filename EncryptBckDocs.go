@@ -18,6 +18,13 @@ import (
 	"google.golang.org/api/drive/v3"
 )
 
+const configFileName = "config.json"
+
+type appConfig struct {
+	FolderName string `json:"folderName"`
+	LastUpdate string `json:"lastUpdate"`
+}
+
 // getClient uses a Context and Config to retrieve a Token
 // then generate a Client. It returns the generated Client.
 func getClient(ctx context.Context, config *oauth2.Config) *http.Client {
@@ -156,6 +163,45 @@ func uploadNewFileToDrive(folderFile *drive.File, fileToUploadName string, fileT
 	return err
 }
 
+func loadConfig() (config appConfig, err error) {
+	configFileContent, err := os.Open("config.json")
+	if err != nil {
+		return config, err
+	}
+	defer configFileContent.Close()
+
+	jsonParser := json.NewDecoder(configFileContent)
+	err = jsonParser.Decode(&config)
+	if err != nil {
+		return config, err
+	}
+
+	return config, nil
+}
+
+func createConfig() (config appConfig) {
+	// create config file
+	folderName := "EncryptBckDoc"
+	var inputFolderName string
+	fmt.Print("Name for the folder to save files (default: EncryptBckDoc): ")
+	fmt.Scanln(&inputFolderName)
+	if inputFolderName != "" {
+		folderName = inputFolderName
+	}
+	configApp := appConfig{
+		FolderName: folderName,
+	}
+	//save json file
+	jsonContent, err := json.Marshal(configApp)
+	if err != nil {
+		log.Printf("ERROR! Cannot create config file: %v ", err)
+	} else {
+		ioutil.WriteFile("config.json", jsonContent, 0644)
+	}
+
+	return configApp
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -177,21 +223,19 @@ func main() {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
 
-	folderName := "EncryptBckDoc"
-	var inputFolderName string
-	fmt.Print("Name for the folder to save files (default: EncryptBckDoc): ")
-	fmt.Scanln(&inputFolderName)
-	if inputFolderName != "" {
-		folderName = inputFolderName
-	}
-	fmt.Printf("Looking for folder \"%s\"...\n", folderName)
-
-	folderFile, err := findHolderFolder(folderName, driveSrv)
+	configApp, err := loadConfig()
 	if err != nil {
-		log.Printf("Error finding %s : %v\n", folderName, err)
+		configApp = createConfig()
+	}
+
+	fmt.Printf("Looking for folder \"%s\"...\n", configApp.FolderName)
+
+	folderFile, err := findHolderFolder(configApp.FolderName, driveSrv)
+	if err != nil {
+		log.Printf("Error finding %s : %v\n", configApp.FolderName, err)
 		// create folder
 		fileMeta := &drive.File{
-			Name:     folderName,
+			Name:     configApp.FolderName,
 			MimeType: "application/vnd.google-apps.folder",
 		}
 
@@ -199,7 +243,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		} else {
-			fmt.Printf("Created folder \"%s\" for files!!\n", folderName)
+			fmt.Printf("Created folder \"%s\" for files!!\n", configApp.FolderName)
 		}
 
 	}

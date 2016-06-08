@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"time"
 
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
@@ -19,6 +20,8 @@ import (
 )
 
 const configFileName = "config.json"
+
+var configApp appConfig
 
 type appConfig struct {
 	FolderName string `json:"folderName"`
@@ -132,6 +135,11 @@ func findUploadFileInDrive(fileName string, parentID string, driveSrv *drive.Ser
 	return fileToUpload, err
 }
 
+func updateLastUpdateAppConfig() {
+	configApp.LastUpdate = time.Now().String()
+	saveConfigJSONFile()
+}
+
 func updateFileInDrive(driveFileToUpload *drive.File, goFile *os.File, driveSrv *drive.Service) (err error) {
 	fmt.Printf("Upate existing file %s\n!!", driveFileToUpload.Name)
 	driveFileToUpdate := &drive.File{
@@ -143,6 +151,7 @@ func updateFileInDrive(driveFileToUpload *drive.File, goFile *os.File, driveSrv 
 		panic(err)
 	} else {
 		fmt.Printf("Updated file \"%s\"!!\n", driveFileToUpload.Name)
+		updateLastUpdateAppConfig()
 	}
 
 	return err
@@ -159,12 +168,13 @@ func uploadNewFileToDrive(folderFile *drive.File, fileToUploadName string, fileT
 		panic(err)
 	} else {
 		fmt.Printf("Uploaded file \"%s\" to \"%s\" !!\n", fileToUploadName, folderFile.Name)
+		updateLastUpdateAppConfig()
 	}
 	return err
 }
 
 func loadConfig() (config appConfig, err error) {
-	configFileContent, err := os.Open("config.json")
+	configFileContent, err := os.Open(configFileName)
 	if err != nil {
 		return config, err
 	}
@@ -179,6 +189,16 @@ func loadConfig() (config appConfig, err error) {
 	return config, nil
 }
 
+func saveConfigJSONFile() {
+	//save json file
+	jsonContent, err := json.Marshal(configApp)
+	if err != nil {
+		log.Printf("ERROR! Cannot create config file: %v ", err)
+	} else {
+		ioutil.WriteFile(configFileName, jsonContent, 0644)
+	}
+}
+
 func createConfig() (config appConfig) {
 	// create config file
 	folderName := "EncryptBckDoc"
@@ -188,22 +208,29 @@ func createConfig() (config appConfig) {
 	if inputFolderName != "" {
 		folderName = inputFolderName
 	}
-	configApp := appConfig{
+	configApp = appConfig{
 		FolderName: folderName,
 	}
 	//save json file
-	jsonContent, err := json.Marshal(configApp)
-	if err != nil {
-		log.Printf("ERROR! Cannot create config file: %v ", err)
-	} else {
-		ioutil.WriteFile("config.json", jsonContent, 0644)
-	}
+	saveConfigJSONFile()
 
 	return configApp
 }
 
+func createFolderInDrive(folderName string, driveSrv *drive.Service) (folderFile *drive.File, err error) {
+	log.Printf("Error finding %s : %v\n", folderName, err)
+	// create folder
+	fileMeta := &drive.File{
+		Name:     folderName,
+		MimeType: "application/vnd.google-apps.folder",
+	}
+	folderFile, err = driveSrv.Files.Create(fileMeta).Do()
+
+	return folderFile, err
+}
+
 func main() {
-	ctx := context.Background()
+	context := context.Background()
 
 	b, err := ioutil.ReadFile("client_secret.json")
 	if err != nil {
@@ -216,14 +243,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
-	client := getClient(ctx, config)
+	client := getClient(context, config)
 
 	driveSrv, err := drive.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
 
-	configApp, err := loadConfig()
+	configApp, err = loadConfig()
 	if err != nil {
 		configApp = createConfig()
 	}
@@ -232,20 +259,13 @@ func main() {
 
 	folderFile, err := findHolderFolder(configApp.FolderName, driveSrv)
 	if err != nil {
-		log.Printf("Error finding %s : %v\n", configApp.FolderName, err)
-		// create folder
-		fileMeta := &drive.File{
-			Name:     configApp.FolderName,
-			MimeType: "application/vnd.google-apps.folder",
-		}
+		folderFile, err = createFolderInDrive(configApp.FolderName, driveSrv)
 
-		folderFile, err = driveSrv.Files.Create(fileMeta).Do()
 		if err != nil {
 			panic(err)
 		} else {
 			fmt.Printf("Created folder \"%s\" for files!!\n", configApp.FolderName)
 		}
-
 	}
 
 	fmt.Printf("Found folder %s - ID: (%s) - TYPE:%s\n", folderFile.Name, folderFile.Id, folderFile.MimeType)

@@ -1,5 +1,5 @@
 #EncryptBckDocs#
-
+Watch a folder and if any file on it is modified, it will be uploaded to your Google Drive account
 
 ## Requirements
 * Set the GOPATH environment variable to your working directory.
@@ -12,12 +12,12 @@
  * Click the file_download (Download JSON) button to the right of the client ID.
  * Move this file to your working directory and rename it client_secret.json.
  
- ## Links
- * https://developers.google.com/drive/v3/web/quickstart/go#step_1_turn_on_the_api_name
- * https://github.com/fsnotify/fsnotify
+## Links
+* https://developers.google.com/drive/v3/web/quickstart/go#step_1_turn_on_the_api_name
+* https://github.com/fsnotify/fsnotify
  
- ## Libs
- * go get -u google.golang.org/api/drive/v3
- * go get -u golang.org/x/oauth2/...
- * go get -u golang.org/x/sys/...
- * go get -u github.com/fsnotify/fsnotify
+## Libs
+* go get -u google.golang.org/api/drive/v3
+* go get -u golang.org/x/oauth2/...
+* go get -u golang.org/x/sys/...
+* go get -u github.com/fsnotify/fsnotify

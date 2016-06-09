@@ -17,15 +17,21 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 const configFileName = "config.json"
+const clientSecretFileName = "client_secret.json"
+
+var appFiles = []string{configFileName, clientSecretFileName, "EncryptBckDocs.go", "EncryptBckDocs"}
 
 var configApp appConfig
 
 type appConfig struct {
-	FolderName string `json:"folderName"`
-	LastUpdate string `json:"lastUpdate"`
+	FolderName    string `json:"folderName"`
+	LastUpdate    string `json:"lastUpdate"`
+	FolderToWatch string `json:"folderToWatch"`
 }
 
 // getClient uses a Context and Config to retrieve a Token
@@ -229,6 +235,76 @@ func createFolderInDrive(folderName string, driveSrv *drive.Service) (folderFile
 	return folderFile, err
 }
 
+func isNotAppFile(fileName string) (isIt bool) {
+	for _, name := range appFiles {
+		if name == fileName {
+			return false
+		}
+	}
+	return true
+}
+
+func runWatcher(driveSrv *drive.Service, parentFolder *drive.File) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer watcher.Close()
+
+	done := make(chan bool)
+	go func() {
+		for {
+			select {
+			case event := <-watcher.Events:
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					if isNotAppFile(event.Name) {
+						processUpload(event.Name, event.Name, parentFolder, driveSrv)
+					}
+				}
+			case err := <-watcher.Errors:
+				log.Println("error:", err)
+			}
+		}
+	}()
+
+	err = watcher.Add("./")
+	if err != nil {
+		log.Fatal(err)
+	}
+	<-done
+}
+
+func processUpload(uploadFilePath string, uploadFileName string, parentFolder *drive.File, driveSrv *drive.Service) {
+	goFile, err := os.Open(uploadFilePath)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+
+	var driveFileToUpload *drive.File
+	driveFileToUpload, err = findUploadFileInDrive(uploadFileName, parentFolder.Id, driveSrv)
+	if err != nil {
+		log.Fatalf("Error checking if file \"%s\" already exists", uploadFileName)
+	}
+
+	if driveFileToUpload != nil {
+		updateFileInDrive(driveFileToUpload, goFile, driveSrv)
+	} else {
+		uploadNewFileToDrive(parentFolder, uploadFileName, uploadFilePath, goFile, driveSrv)
+	}
+}
+
+func configFolderToWatch() {
+	var folderToWatch string
+	fmt.Print("Path to watch (default-actual folder: \".\" ): ")
+	fmt.Scanln(&folderToWatch)
+	if folderToWatch == "" {
+		folderToWatch = "."
+	}
+	//save in config file
+	configApp.FolderToWatch = folderToWatch
+	saveConfigJSONFile()
+}
+
 func main() {
 	context := context.Background()
 
@@ -270,23 +346,7 @@ func main() {
 
 	fmt.Printf("Found folder %s - ID: (%s) - TYPE:%s\n", folderFile.Name, folderFile.Id, folderFile.MimeType)
 
-	fileToUploadName := "Example.txt"
-	fileToUploadURL := "./Example.txt"
-	goFile, err := os.Open(fileToUploadURL)
-	if err != nil {
-		log.Fatalf("error opening file: %v", err)
-	}
+	configFolderToWatch()
 
-	var driveFileToUpload *drive.File
-	driveFileToUpload, err = findUploadFileInDrive(fileToUploadName, folderFile.Id, driveSrv)
-	if err != nil {
-		log.Fatalf("Error checking if file \"%s\" already exists", fileToUploadName)
-	}
-
-	if driveFileToUpload != nil {
-		updateFileInDrive(driveFileToUpload, goFile, driveSrv)
-	} else {
-		uploadNewFileToDrive(folderFile, fileToUploadName, fileToUploadURL, goFile, driveSrv)
-	}
-
+	runWatcher(driveSrv, folderFile)
 }

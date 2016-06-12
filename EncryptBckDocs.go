@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"golang.org/x/net/context"
@@ -26,7 +27,9 @@ const clientSecretFileName = "client_secret.json"
 
 var appFiles = []string{configFileName, clientSecretFileName, "EncryptBckDocs.go", "EncryptBckDocs"}
 
-var configApp appConfig
+var driveSrv *drive.Service // drive service
+
+var configApp appConfig // app configuration object
 
 type appConfig struct {
 	FolderName    string `json:"folderName"`
@@ -106,7 +109,7 @@ func saveToken(file string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
-func findHolderFolder(folderName string, driveSrv *drive.Service) (file *drive.File, err error) {
+func findHolderFolder(folderName string) (file *drive.File, err error) {
 	r, err := driveSrv.Files.List().Q("mimeType='application/vnd.google-apps.folder' and explicitlyTrashed=false").Fields("nextPageToken, files(id, name, mimeType)").Do()
 	if err != nil {
 		return nil, err
@@ -130,7 +133,7 @@ func findHolderFolder(folderName string, driveSrv *drive.Service) (file *drive.F
 	return folder, err
 }
 
-func findUploadFileInDrive(fileName string, parentID string, driveSrv *drive.Service) (fileToUpload *drive.File, err error) {
+func findUploadFileInDrive(fileName string, parentID string) (fileToUpload *drive.File, err error) {
 	r, err := driveSrv.Files.List().Q("'" + parentID + "' in parents and explicitlyTrashed=false and name='" + fileName + "'").Fields("files(id, name)").Do()
 	if err != nil {
 		return nil, err
@@ -146,7 +149,7 @@ func updateLastUpdateAppConfig() {
 	saveConfigJSONFile()
 }
 
-func updateFileInDrive(driveFileToUpload *drive.File, goFile *os.File, driveSrv *drive.Service) (err error) {
+func updateFileInDrive(driveFileToUpload *drive.File, goFile *os.File) (err error) {
 	fmt.Printf("Upate existing file %s\n!!", driveFileToUpload.Name)
 	driveFileToUpdate := &drive.File{
 		Name: filepath.Base(driveFileToUpload.Name),
@@ -163,7 +166,7 @@ func updateFileInDrive(driveFileToUpload *drive.File, goFile *os.File, driveSrv 
 	return err
 }
 
-func uploadNewFileToDrive(folderFile *drive.File, fileToUploadName string, fileToUploadURL string, goFile *os.File, driveSrv *drive.Service) (err error) {
+func uploadNewFileToDrive(folderFile *drive.File, fileToUploadName string, fileToUploadURL string, goFile *os.File) (err error) {
 	parents := []string{folderFile.Id}
 	driveFileToUpload := &drive.File{
 		Parents: parents,
@@ -223,7 +226,7 @@ func createConfig() (config appConfig) {
 	return configApp
 }
 
-func createFolderInDrive(folderName string, driveSrv *drive.Service) (folderFile *drive.File, err error) {
+func createFolderInDrive(folderName string) (folderFile *drive.File, err error) {
 	log.Printf("Error finding %s : %v\n", folderName, err)
 	// create folder
 	fileMeta := &drive.File{
@@ -244,7 +247,7 @@ func isNotAppFile(fileName string) (isIt bool) {
 	return true
 }
 
-func runWatcher(driveSrv *drive.Service, parentFolder *drive.File) {
+func runWatcher(parentFolder *drive.File) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
@@ -258,7 +261,7 @@ func runWatcher(driveSrv *drive.Service, parentFolder *drive.File) {
 			case event := <-watcher.Events:
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					if isNotAppFile(event.Name) {
-						processUpload(event.Name, event.Name, parentFolder, driveSrv)
+						processUpload(event.Name, event.Name, parentFolder)
 					}
 				}
 			case err := <-watcher.Errors:
@@ -274,38 +277,96 @@ func runWatcher(driveSrv *drive.Service, parentFolder *drive.File) {
 	<-done
 }
 
-func processUpload(uploadFilePath string, uploadFileName string, parentFolder *drive.File, driveSrv *drive.Service) {
+func processUpload(uploadFilePath string, uploadFileName string, parentFolder *drive.File) {
 	goFile, err := os.Open(uploadFilePath)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
 
 	var driveFileToUpload *drive.File
-	driveFileToUpload, err = findUploadFileInDrive(uploadFileName, parentFolder.Id, driveSrv)
+	driveFileToUpload, err = findUploadFileInDrive(uploadFileName, parentFolder.Id)
 	if err != nil {
 		log.Fatalf("Error checking if file \"%s\" already exists", uploadFileName)
 	}
 
 	if driveFileToUpload != nil {
-		updateFileInDrive(driveFileToUpload, goFile, driveSrv)
+		updateFileInDrive(driveFileToUpload, goFile)
 	} else {
-		uploadNewFileToDrive(parentFolder, uploadFileName, uploadFilePath, goFile, driveSrv)
+		uploadNewFileToDrive(parentFolder, uploadFileName, uploadFilePath, goFile)
 	}
 }
 
 func configFolderToWatch() {
-	var folderToWatch string
-	fmt.Print("Path to watch (default-actual folder: \".\" ): ")
-	fmt.Scanln(&folderToWatch)
-	if folderToWatch == "" {
-		folderToWatch = "."
+	if configApp.FolderToWatch == "" {
+		var folderToWatch string
+		fmt.Print("Path to watch (default-actual folder: \".\" ): ")
+		fmt.Scanln(&folderToWatch)
+		if folderToWatch == "" {
+			folderToWatch = "."
+		}
+		//save in config file
+		configApp.FolderToWatch = folderToWatch
+		saveConfigJSONFile()
 	}
-	//save in config file
-	configApp.FolderToWatch = folderToWatch
-	saveConfigJSONFile()
+}
+
+func showAppMenu() {
+	optionsWithAppConfig := fmt.Sprintf("Options(case insensitive):\n" +
+		"  c - Configure (remove previous configuration)\n" +
+		"  s - Show Configuration\n" +
+		"  a - Add path to listen\n" +
+		"  e - Execute\n" +
+		"  x - Exit\n")
+	optionsWithoutAppConfig := fmt.Sprintf("Options:\n" +
+		"  c - Configure\n" +
+		"  x - Exit\n")
+
+	if configApp.FolderName != "" {
+		fmt.Printf(optionsWithAppConfig)
+	} else {
+		fmt.Printf(optionsWithoutAppConfig)
+	}
+
+	var userOption string
+	fmt.Print("Option: ")
+	fmt.Scanln(&userOption)
+	userOption = strings.ToLower(userOption)
+	if userOption == "e" {
+		executeApp()
+	} else if userOption == "x" {
+		os.Exit(0)
+	} else if userOption == "c" {
+		configApp = createConfig()
+		configFolderToWatch()
+		showAppMenu()
+	}
+}
+
+func executeApp() {
+	fmt.Printf("Looking for folder \"%s\"...\n", configApp.FolderName)
+
+	folderFile, err := findHolderFolder(configApp.FolderName)
+	if err != nil {
+		folderFile, err = createFolderInDrive(configApp.FolderName)
+
+		if err != nil {
+			panic(err)
+		} else {
+			fmt.Printf("Created folder \"%s\" for files!!\n", configApp.FolderName)
+		}
+	}
+
+	fmt.Printf("Found folder %s - ID: (%s) - TYPE:%s\n", folderFile.Name, folderFile.Id, folderFile.MimeType)
+
+	configFolderToWatch()
+
+	runWatcher(folderFile)
 }
 
 func main() {
+	arguments := os.Args[1:]
+
+	// start config for Drive
 	context := context.Background()
 
 	b, err := ioutil.ReadFile("client_secret.json")
@@ -321,32 +382,23 @@ func main() {
 	}
 	client := getClient(context, config)
 
-	driveSrv, err := drive.New(client)
+	driveSrv, err = drive.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve drive Client %v", err)
 	}
 
+	// end config for Drive
+
 	configApp, err = loadConfig()
 	if err != nil {
-		configApp = createConfig()
+		//configApp = createConfig()
+		fmt.Println("No app config yet")
 	}
 
-	fmt.Printf("Looking for folder \"%s\"...\n", configApp.FolderName)
-
-	folderFile, err := findHolderFolder(configApp.FolderName, driveSrv)
-	if err != nil {
-		folderFile, err = createFolderInDrive(configApp.FolderName, driveSrv)
-
-		if err != nil {
-			panic(err)
-		} else {
-			fmt.Printf("Created folder \"%s\" for files!!\n", configApp.FolderName)
-		}
+	if len(arguments) > 1 && arguments[0] == "-e" {
+		fmt.Println("Execute listen")
+	} else {
+		showAppMenu()
 	}
 
-	fmt.Printf("Found folder %s - ID: (%s) - TYPE:%s\n", folderFile.Name, folderFile.Id, folderFile.MimeType)
-
-	configFolderToWatch()
-
-	runWatcher(driveSrv, folderFile)
 }

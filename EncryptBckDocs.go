@@ -318,6 +318,28 @@ func showAppConfig() {
 	fmt.Printf("### #################### ####\n\n")
 }
 
+func runOption(userOption string, backToMenu bool) {
+	if userOption == "e" {
+		executeApp()
+	} else if userOption == "x" {
+		os.Exit(0)
+	} else if userOption == "c" {
+		configApp = createConfig()
+		configFolderToWatch()
+
+		if backToMenu {
+			showAppMenu()
+		}
+	} else if userOption == "s" {
+		showAppConfig()
+		if backToMenu {
+			showAppMenu()
+		}
+	} else {
+		log.Fatal("Wrong option: ", userOption)
+	}
+}
+
 func showAppMenu() {
 	optionsWithAppConfig := fmt.Sprintf("Options(case insensitive):\n" +
 		"  c - Configure (remove previous configuration)\n" +
@@ -339,18 +361,8 @@ func showAppMenu() {
 	fmt.Print("Option: ")
 	fmt.Scanln(&userOption)
 	userOption = strings.ToLower(userOption)
-	if userOption == "e" {
-		executeApp()
-	} else if userOption == "x" {
-		os.Exit(0)
-	} else if userOption == "c" {
-		configApp = createConfig()
-		configFolderToWatch()
-		showAppMenu()
-	} else if userOption == "s" {
-		showAppConfig()
-		showAppMenu()
-	}
+
+	runOption(userOption, true)
 }
 
 func executeApp() {
@@ -406,8 +418,13 @@ func main() {
 		fmt.Println("No app config yet")
 	}
 
-	if len(arguments) > 1 && arguments[0] == "-e" {
+	fmt.Println(arguments)
+	fmt.Println(arguments[0])
+	if len(arguments) >= 1 {
 		fmt.Println("Execute listen")
+		userOption := strings.Replace(arguments[0], "-", "", -1)
+		fmt.Println("userOption: ", userOption)
+		runOption(userOption, false)
 	} else {
 		showAppMenu()
 	}

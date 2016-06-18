@@ -305,9 +305,17 @@ func configFolderToWatch() {
 			folderToWatch = "."
 		}
 		//save in config file
-		configApp.FolderToWatch = folderToWatch
+		configApp.FolderToWatch, _ = filepath.Abs(filepath.Dir(folderToWatch))
 		saveConfigJSONFile()
 	}
+}
+
+func showAppConfig() {
+	fmt.Printf("\n### Actual configuration ####\n")
+	fmt.Printf("###  - Destination folder in Drive: %s\n", configApp.FolderName)
+	fmt.Printf("###  - Last syncronization time: %s\n", configApp.LastUpdate)
+	fmt.Printf("###  - Local watching folder: %s\n", configApp.FolderToWatch)
+	fmt.Printf("### #################### ####\n\n")
 }
 
 func showAppMenu() {
@@ -338,6 +346,9 @@ func showAppMenu() {
 	} else if userOption == "c" {
 		configApp = createConfig()
 		configFolderToWatch()
+		showAppMenu()
+	} else if userOption == "s" {
+		showAppConfig()
 		showAppMenu()
 	}
 }

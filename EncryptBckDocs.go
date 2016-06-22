@@ -240,7 +240,7 @@ func createFolderInDrive(folderName string) (folderFile *drive.File, err error) 
 
 func isNotAppFile(fileName string) (isIt bool) {
 	for _, name := range appFiles {
-		if name == fileName {
+		if (configApp.FolderToWatch + "/" + name) == fileName {
 			return false
 		}
 	}

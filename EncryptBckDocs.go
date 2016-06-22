@@ -270,7 +270,7 @@ func runWatcher(parentFolder *drive.File) {
 		}
 	}()
 
-	err = watcher.Add("./")
+	err = watcher.Add(configApp.FolderToWatch)
 	if err != nil {
 		log.Fatal(err)
 	}

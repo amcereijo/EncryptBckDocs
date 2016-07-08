@@ -247,6 +247,11 @@ func isNotAppFile(fileName string) (isIt bool) {
 	return true
 }
 
+func isNotHiddenFile(fileName string) (isHidden bool) {
+	log.Println("index: ", strings.Index(fileName, "."))
+	return strings.Index(fileName, "/.") != -1
+}
+
 func runWatcher(parentFolder *drive.File) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -260,7 +265,7 @@ func runWatcher(parentFolder *drive.File) {
 			select {
 			case event := <-watcher.Events:
 				if event.Op&fsnotify.Write == fsnotify.Write {
-					if isNotAppFile(event.Name) {
+					if isNotAppFile(event.Name) && !isNotHiddenFile(event.Name) {
 						processUpload(event.Name, event.Name, parentFolder)
 					}
 				}
@@ -430,3 +435,9 @@ func main() {
 	}
 
 }
+
+/*
+TODO
+	save files in folder when start
+	add more folder to watch
+*/

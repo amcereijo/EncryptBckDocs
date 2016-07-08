@@ -32,9 +32,9 @@ var driveSrv *drive.Service // drive service
 var configApp appConfig // app configuration object
 
 type appConfig struct {
-	FolderName    string `json:"folderName"`
-	LastUpdate    string `json:"lastUpdate"`
-	FolderToWatch string `json:"folderToWatch"`
+	FolderName    string   `json:"folderName"`
+	LastUpdate    string   `json:"lastUpdate"`
+	FolderToWatch []string `json:"folderToWatch"`
 }
 
 // getClient uses a Context and Config to retrieve a Token
@@ -134,6 +134,7 @@ func findHolderFolder(folderName string) (file *drive.File, err error) {
 }
 
 func findUploadFileInDrive(fileName string, parentID string) (fileToUpload *drive.File, err error) {
+	log.Println("findUploadFileInDrive: ", fileName)
 	r, err := driveSrv.Files.List().Q("'" + parentID + "' in parents and explicitlyTrashed=false and name='" + fileName + "'").Fields("files(id, name)").Do()
 	if err != nil {
 		return nil, err
@@ -240,7 +241,10 @@ func createFolderInDrive(folderName string) (folderFile *drive.File, err error) 
 
 func isNotAppFile(fileName string) (isIt bool) {
 	for _, name := range appFiles {
-		if (configApp.FolderToWatch + "/" + name) == fileName {
+		indexOfName := strings.LastIndex(fileName, name)
+		nameLength := len(name)
+		fileNameLength := len(fileName)
+		if fileNameLength-nameLength == indexOfName {
 			return false
 		}
 	}
@@ -248,51 +252,57 @@ func isNotAppFile(fileName string) (isIt bool) {
 }
 
 func isNotHiddenFile(fileName string) (isHidden bool) {
-	log.Println("index: ", strings.Index(fileName, "."))
 	return strings.Index(fileName, "/.") != -1
 }
 
 func runWatcher(parentFolder *drive.File) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer watcher.Close()
-
-	done := make(chan bool)
-	go func() {
-		for {
-			select {
-			case event := <-watcher.Events:
-				if event.Op&fsnotify.Write == fsnotify.Write {
-					if isNotAppFile(event.Name) && !isNotHiddenFile(event.Name) {
-						processUpload(event.Name, event.Name, parentFolder)
-					}
-				}
-			case err := <-watcher.Errors:
-				log.Println("error:", err)
-			}
+	for _, actualFileToWatch := range configApp.FolderToWatch {
+		watcher, err := fsnotify.NewWatcher()
+		if err != nil {
+			log.Fatal(err)
 		}
-	}()
+		defer watcher.Close()
 
-	err = watcher.Add(configApp.FolderToWatch)
-	if err != nil {
-		log.Fatal(err)
+		done := make(chan bool)
+		go func() {
+			for {
+				select {
+				case event := <-watcher.Events:
+					if event.Op&fsnotify.Write == fsnotify.Write {
+						if isNotAppFile(event.Name) && !isNotHiddenFile(event.Name) {
+							onlyFileName := strings.Replace(event.Name, actualFileToWatch+"/", "", -1)
+							log.Println("ToReplace: ", actualFileToWatch+"/", " - name: ", event.Name, "  onlyFileName: ", onlyFileName)
+							processUpload(event.Name, onlyFileName, parentFolder)
+						}
+					}
+				case err := <-watcher.Errors:
+					log.Println("error:", err)
+				}
+			}
+		}()
+
+		err = watcher.Add(actualFileToWatch)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		<-done
 	}
-	<-done
 }
 
 func uploadActualFilesInWatchDir(parentFolder *drive.File) {
-	log.Println("uploadActualFilesInWatchDir! ", configApp.FolderToWatch)
-	files, err := ioutil.ReadDir(configApp.FolderToWatch)
-	if err != nil {
-		log.Println("Error uploadActualFilesInWatchDir: ", err)
-	} else {
-		for _, actualFile := range files {
-			if !actualFile.IsDir() {
-				totalName := configApp.FolderToWatch + "/" + actualFile.Name()
-				if isNotAppFile(totalName) && !isNotHiddenFile(totalName) {
-					processUpload(totalName, totalName, parentFolder)
+	for _, actualFolderToWatch := range configApp.FolderToWatch {
+		log.Println("-uploadActualFilesInWatchDir: ", actualFolderToWatch)
+		files, err := ioutil.ReadDir(actualFolderToWatch)
+		if err != nil {
+			log.Println("Error uploadActualFilesInWatchDir: ", err)
+		} else {
+			for _, actualFile := range files {
+				if !actualFile.IsDir() {
+					totalName := actualFolderToWatch + "/" + actualFile.Name()
+					if isNotAppFile(totalName) && !isNotHiddenFile(totalName) {
+						processUpload(totalName, actualFile.Name(), parentFolder)
+					}
 				}
 			}
 		}
@@ -312,14 +322,16 @@ func processUpload(uploadFilePath string, uploadFileName string, parentFolder *d
 	}
 
 	if driveFileToUpload != nil {
+		log.Println("Update existing file to Drive")
 		updateFileInDrive(driveFileToUpload, goFile)
 	} else {
+		log.Println("Update new file to Drive")
 		uploadNewFileToDrive(parentFolder, uploadFileName, uploadFilePath, goFile)
 	}
 }
 
 func configFolderToWatch() {
-	if configApp.FolderToWatch == "" {
+	if len(configApp.FolderToWatch) == 0 || configApp.FolderToWatch[0] == "" {
 		var folderToWatch string
 		fmt.Print("Path to watch (default-actual folder: \".\" ): ")
 		fmt.Scanln(&folderToWatch)
@@ -327,8 +339,26 @@ func configFolderToWatch() {
 			folderToWatch = "."
 		}
 		//save in config file
-		configApp.FolderToWatch, _ = filepath.Abs(filepath.Dir(folderToWatch))
+		folderToWatch, _ = filepath.Abs(filepath.Dir(folderToWatch))
+		configApp.FolderToWatch = []string{folderToWatch}
 		saveConfigJSONFile()
+	}
+}
+
+func addFolderToWatch() {
+	if len(configApp.FolderToWatch) == 0 {
+		log.Println("Lauch config option first!!")
+	} else {
+		var folderToWatch string
+		fmt.Print("Path to watch (default-actual folder: \".\" ): ")
+		fmt.Scanln(&folderToWatch)
+		if folderToWatch == "" {
+			folderToWatch = "."
+		}
+		//save in config file
+		folderToWatch, _ = filepath.Abs(filepath.Dir(folderToWatch))
+
+		configApp.FolderToWatch = append(configApp.FolderToWatch, folderToWatch)
 	}
 }
 
@@ -349,6 +379,11 @@ func runOption(userOption string, backToMenu bool) {
 		configApp = createConfig()
 		configFolderToWatch()
 
+		if backToMenu {
+			showAppMenu()
+		}
+	} else if userOption == "a" {
+		addFolderToWatch()
 		if backToMenu {
 			showAppMenu()
 		}
@@ -443,7 +478,6 @@ func main() {
 	}
 
 	fmt.Println(arguments)
-	fmt.Println(arguments[0])
 	if len(arguments) >= 1 {
 		fmt.Println("Execute listen")
 		userOption := strings.Replace(arguments[0], "-", "", -1)

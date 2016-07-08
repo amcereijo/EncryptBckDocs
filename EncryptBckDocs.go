@@ -282,6 +282,23 @@ func runWatcher(parentFolder *drive.File) {
 	<-done
 }
 
+func uploadActualFilesInWatchDir(parentFolder *drive.File) {
+	log.Println("uploadActualFilesInWatchDir! ", configApp.FolderToWatch)
+	files, err := ioutil.ReadDir(configApp.FolderToWatch)
+	if err != nil {
+		log.Println("Error uploadActualFilesInWatchDir: ", err)
+	} else {
+		for _, actualFile := range files {
+			if !actualFile.IsDir() {
+				totalName := configApp.FolderToWatch + "/" + actualFile.Name()
+				if isNotAppFile(totalName) && !isNotHiddenFile(totalName) {
+					processUpload(totalName, totalName, parentFolder)
+				}
+			}
+		}
+	}
+}
+
 func processUpload(uploadFilePath string, uploadFileName string, parentFolder *drive.File) {
 	goFile, err := os.Open(uploadFilePath)
 	if err != nil {
@@ -388,6 +405,8 @@ func executeApp() {
 
 	configFolderToWatch()
 
+	uploadActualFilesInWatchDir(folderFile)
+
 	runWatcher(folderFile)
 }
 
@@ -438,6 +457,5 @@ func main() {
 
 /*
 TODO
-	save files in folder when start
 	add more folder to watch
 */

@@ -256,38 +256,44 @@ func isNotHiddenFile(fileName string) (isHidden bool) {
 }
 
 func runWatcher(parentFolder *drive.File) {
-	for _, actualFileToWatch := range configApp.FolderToWatch {
-		watcher, err := fsnotify.NewWatcher()
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer watcher.Close()
 
-		done := make(chan bool)
-		go func() {
-			for {
-				select {
-				case event := <-watcher.Events:
-					if event.Op&fsnotify.Write == fsnotify.Write {
-						if isNotAppFile(event.Name) && !isNotHiddenFile(event.Name) {
-							onlyFileName := strings.Replace(event.Name, actualFileToWatch+"/", "", -1)
-							log.Println("ToReplace: ", actualFileToWatch+"/", " - name: ", event.Name, "  onlyFileName: ", onlyFileName)
-							processUpload(event.Name, onlyFileName, parentFolder)
-						}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer watcher.Close()
+
+	done := make(chan bool)
+	go func() {
+		for {
+			select {
+			case event := <-watcher.Events:
+				if event.Op&fsnotify.Write == fsnotify.Write {
+					if isNotAppFile(event.Name) && !isNotHiddenFile(event.Name) {
+						//onlyFileName := strings.Replace(event.Name, actualFileToWatch+"/", "", -1)
+						lastPos := strings.LastIndex(event.Name, string(os.PathSeparator))
+						actualFileToWatch := event.Name[0:lastPos]
+						onlyFileName := event.Name[(lastPos + 1):len(event.Name)]
+						log.Println("ToReplace: ", actualFileToWatch+string(os.PathSeparator), " - name: ", event.Name, "  onlyFileName: ", onlyFileName)
+						processUpload(event.Name, onlyFileName, parentFolder)
 					}
-				case err := <-watcher.Errors:
-					log.Println("error:", err)
 				}
+			case err := <-watcher.Errors:
+				log.Println("error:", err)
 			}
-		}()
+		}
+	}()
 
+	for _, actualFileToWatch := range configApp.FolderToWatch {
+		log.Println("add to watch: ", actualFileToWatch)
 		err = watcher.Add(actualFileToWatch)
 		if err != nil {
 			log.Fatal(err)
 		}
-
-		<-done
 	}
+
+	<-done
+
 }
 
 func uploadActualFilesInWatchDir(parentFolder *drive.File) {
@@ -355,10 +361,22 @@ func addFolderToWatch() {
 		if folderToWatch == "" {
 			folderToWatch = "."
 		}
-		//save in config file
-		folderToWatch, _ = filepath.Abs(filepath.Dir(folderToWatch))
 
-		configApp.FolderToWatch = append(configApp.FolderToWatch, folderToWatch)
+		//save in config file
+		folderToWatch, _ = filepath.Abs(filepath.Dir(folderToWatch + "/"))
+
+		isFolderInConfig := false
+		for _, actualFoldertoWatch := range configApp.FolderToWatch {
+			if actualFoldertoWatch == folderToWatch {
+				isFolderInConfig = true
+			}
+		}
+		if isFolderInConfig {
+			log.Println("ERROR!! - The folder ir already in config!")
+		} else {
+			configApp.FolderToWatch = append(configApp.FolderToWatch, folderToWatch)
+			saveConfigJSONFile()
+		}
 	}
 }
 

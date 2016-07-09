@@ -416,7 +416,7 @@ func showAppConfig() {
 func runOption(userOption string, backToMenu bool) {
 	if userOption == "e" {
 		executeApp()
-	} else if userOption == "x" {
+	} else if userOption == "q" {
 		os.Exit(0)
 	} else if userOption == "c" {
 		configApp = createConfig()
@@ -452,7 +452,7 @@ func showAppMenu() {
 		"  a - Add path to listen\n" +
 		"  r - Remove path to listen\n" +
 		"  e - Execute\n" +
-		"  x - Exit\n")
+		"  q - Exit\n")
 	optionsWithoutAppConfig := fmt.Sprintf("Options:\n" +
 		"  c - Configure\n" +
 		"  x - Exit\n")

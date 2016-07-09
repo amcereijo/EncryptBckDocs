@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -380,6 +381,30 @@ func addFolderToWatch() {
 	}
 }
 
+func removeFolderToWatch() {
+	pathToWatchLen := len(configApp.FolderToWatch)
+	if pathToWatchLen <= 0 {
+		log.Println("ERROR - There is no paths configured yet!!")
+	} else {
+		log.Println("Available options:")
+		for i, path := range configApp.FolderToWatch {
+			fmt.Printf("\t%d - %s\n", (i + 1), path)
+		}
+
+		userOption := ""
+		log.Print("Your choice: ")
+		fmt.Scanln(&userOption)
+
+		intUserOption, err := strconv.Atoi(userOption)
+		if err != nil || intUserOption < pathToWatchLen {
+			fmt.Printf("\nERROR - Wrong option!!. Valid options should be from 1 to %d\n\n", pathToWatchLen)
+		} else {
+			intUserOption = intUserOption - 1
+			configApp.FolderToWatch = append(configApp.FolderToWatch[:intUserOption], configApp.FolderToWatch[intUserOption+1:]...)
+		}
+	}
+}
+
 func showAppConfig() {
 	fmt.Printf("\n### Actual configuration ####\n")
 	fmt.Printf("###  - Destination folder in Drive: %s\n", configApp.FolderName)
@@ -405,6 +430,11 @@ func runOption(userOption string, backToMenu bool) {
 		if backToMenu {
 			showAppMenu()
 		}
+	} else if userOption == "r" {
+		removeFolderToWatch()
+		if backToMenu {
+			showAppMenu()
+		}
 	} else if userOption == "s" {
 		showAppConfig()
 		if backToMenu {
@@ -420,6 +450,7 @@ func showAppMenu() {
 		"  c - Configure (remove previous configuration)\n" +
 		"  s - Show Configuration\n" +
 		"  a - Add path to listen\n" +
+		"  r - Remove path to listen\n" +
 		"  e - Execute\n" +
 		"  x - Exit\n")
 	optionsWithoutAppConfig := fmt.Sprintf("Options:\n" +
